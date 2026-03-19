@@ -144,7 +144,6 @@ func split_mesh(mi: MeshInstance3D, c_x: int, c_z: int, make_static: bool):
 	var root = EditorInterface.get_edited_scene_root()
 	var undo_redo = get_undo_redo()
 	
-	# --- NEW: Begin Undo/Redo Action ---
 	undo_redo.create_action("Split Terrain into Chunks")
 	
 	for coord in chunks_data:
@@ -161,33 +160,38 @@ func split_mesh(mi: MeshInstance3D, c_x: int, c_z: int, make_static: bool):
 		
 		var new_mi = MeshInstance3D.new()
 		new_mi.mesh = new_mesh
-		new_mi.name = "TerrainChunk_%d_%d" % [coord.x, coord.y]
 		
 		if mesh.get_surface_count() > 0 and mesh.surface_get_material(0):
 			new_mi.material_override = mesh.surface_get_material(0)
 		elif mi.material_override:
 			new_mi.material_override = mi.material_override
+			
+		var chunk_root: Node3D
 		
+		# --- NEW HIERARCHY LOGIC ---
 		if make_static:
 			var static_body = StaticBody3D.new()
-			static_body.name = "StaticBody3D"
-			new_mi.add_child(static_body)
+			static_body.name = "TerrainChunk_%d_%d" % [coord.x, coord.y]
+			
+			new_mi.name = "MeshInstance3D"
+			static_body.add_child(new_mi)
 			
 			var collision_shape = CollisionShape3D.new()
 			collision_shape.name = "CollisionShape3D"
 			collision_shape.shape = new_mesh.create_trimesh_shape() 
 			static_body.add_child(collision_shape)
+			
+			chunk_root = static_body # StaticBody is the parent
+		else:
+			new_mi.name = "TerrainChunk_%d_%d" % [coord.x, coord.y]
+			chunk_root = new_mi # MeshInstance is the parent if no static body
 		
-		# --- NEW: Register DO and UNDO methods ---
-		# DO: Adds the node to the tree and sets the owner properly
-		undo_redo.add_do_method(self, "_add_node_and_set_owner", mi, new_mi, root)
-		# UNDO: Removes the node from the tree
-		undo_redo.add_undo_method(mi, "remove_child", new_mi)
+		# DO: Adds the root node to the tree and sets the owner properly for all children
+		undo_redo.add_do_method(self, "_add_node_and_set_owner", mi, chunk_root, root)
+		# UNDO: Removes the root node from the tree
+		undo_redo.add_undo_method(mi, "remove_child", chunk_root)
 		
-	# Commit the action, which executes the "DO" methods immediately
 	undo_redo.commit_action()
-
-# --- NEW: Helper Functions for Undo/Redo ---
 
 func _add_node_and_set_owner(parent: Node, child: Node, owner_node: Node):
 	parent.add_child(child)
